@@ -1,0 +1,282 @@
+---
+title: "Tugas Akhir MPDW"
+author: "Afin Tachtiar"
+date: '2022-05-16'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tseries)
+library(TSA)
+library(lmtest)
+library(portes)
+library(forecast)
+
+```
+
+## Mengimpor data pada file .csv
+```{r}
+# Import dataframe and exploring it
+data <- read.csv('carbon-emission.csv')
+str(data)
+names(data)[1] <- "Year"
+summary(data)
+
+# Visualize the Data
+plot.ts(data$Emission, lwd=2, main="Jumlah Emisi CO2 di Indonesia Tahun 1960 - 2018", xlab="Tahun", ylab="Emisi CO2 Ton Per Capita")
+
+```
+
+## Mempartisi data dengan rasio 8:2 dan
+## Mentransformasi data menjadi Time-Series
+```{r}
+# Partitioning the data with ratio 8:2
+train <- head(data[,2], round(length(data[,2]) * 0.8))
+h <- length(data[,2]) - length(train)
+test <- tail(data[,2], h)
+
+# Transform the splitted data to Time Series
+train <- ts(train)
+test <- ts(test)
+
+# Visualize the splitted Data
+plot.ts(train, lwd=2, xlim=c(0,59), ylim=c(0, 2.4), main="Jumlah Emisi CO2 di Indonesia Tahun 1960 - 2018", xlab="Periode", ylab="Emisi CO2 Ton Per Capita")
+lines(c(rep(NA, 47), test), col="magenta", lwd=2)
+abline(v=47, lty=2, col="orange", lwd=2)
+
+```
+
+## Mengecek kestasioneran data train
+```{r}
+# Plot ACF
+acf(train, lag.max=25)
+# ADF Test
+adf.test(train)
+
+```
+
+## Melakukan proses Differencing d=1 dan
+## kembali mengecek kestasionerannya
+```{r}
+train.d1 = diff(train, difference=1)
+train.d1
+plot.ts(train.d1, lty=1, main="Plot Time Series of Diff. 1")
+
+# Plot ACF after Diff. 1
+acf(train.d1, lag.max=25)
+# ADF Test after Diff. 1
+adf.test(train.d1)
+
+```
+
+## Melakukan proses Differencing d=2 dan
+## kembali mengecek kestasionerannya
+```{r}
+train.d2 = diff(train, difference=2)
+train.d2
+plot.ts(train.d2, lty=1, main="Plot Time Series of Diff. 2")
+
+# Plot ACF after Diff. 2
+acf(train.d2, lag.max=25)
+# ADF Test after Diff. 2
+adf.test(train.d2)
+
+```
+
+## Menampilkan Plot ACF, PACF, dan EACF
+```{r}
+# Plot ACF
+acf(train.d2, lag.max=25)
+# Plot PACF
+pacf(train.d2, lag.max=25)
+# Plot EACF
+eacf(train.d2)
+
+```
+
+## Membangun model ARIMA Tentatif yang selanjutnya akan dianalisis
+```{r}
+# Get from PACF Plot, focusing in AR
+arima.120 <- Arima(train.d2, order=c(1,2,0), method='ML')
+# Get from ACF Plot, focusing in MA
+arima.021 <- Arima(train.d2, order=c(0,2,1), method='ML')
+# Get from EACF Plot, focusing in ARMA
+arima.122 <- Arima(train.d2, order=c(1,2,2), method='ML')
+
+```
+
+## Mengecek setiap signifikansi model ARIMA
+## Apabila P-value < 0.05, maka model lolos ke tahap berikutnya
+```{r}
+# Qualified model from P-value significance
+coeftest(arima.120)
+
+coeftest(arima.021)
+
+coeftest(arima.122)
+
+```
+
+## Memperoleh model terbaik berdasarkan nilai AIC yang minimum
+```{r}
+arima.120
+
+arima.021 # Selected as best model based on function below
+
+arima.122
+
+auto.arima(train) # Produce ARIMA(0,2,1) as the best model
+
+```
+
+## Menguji apakah sisaan pada model ARIMA yang dipilih saling bebas (1)
+```{r}
+# Show Residuals plot pf the model
+tsdisplay(residuals(arima.021), lag.max=40, main="Plot Sisaan Model ARIMA(0,2,1)")
+
+# Check the independency of residuals
+ljbtest <- LjungBox(residuals(arima.021), lags=seq(5, 30, 5), order=0, squared.residuals=FALSE)
+ljbtest
+# We found that the residuals still have dependency,
+# so let's fix this with Overfitting
+
+```
+
+## Memastikan model terbaik dengan Overfitting (0) ---- emergency
+```{r}
+# Produce ARIMA model of Overfit Prob.
+arima.222 <- Arima(train.d2, order=c(2,2,2), method='ML')
+arima.123 <- Arima(train.d2, order=c(1,2,3), method='ML')
+
+# Check Significance of Overfit Prob.
+coeftest(arima.222)
+coeftest(arima.123)
+
+# Check AIC Score
+arima.222
+arima.123 # <- Choosen because of minimum AIC
+
+
+```
+
+## Memastikan model terbaik dengan Overfitting (1)
+```{r}
+# Produce ARIMA model of Overfit Prob.
+arima.121 <- Arima(train.d2, order=c(1,2,1), method='ML')
+arima.022 <- Arima(train.d2, order=c(0,2,2), method='ML')
+
+# Check Significance of Overfit Prob.
+coeftest(arima.121)
+coeftest(arima.022)
+
+# Check AIC Score
+arima.121
+arima.022 # <- Choosen because of minimum AIC
+
+```
+
+## Menguji apakah sisaan pada model ARIMA yang dipilih saling bebas (2)
+```{r}
+# Show Residuals plot pf the model
+tsdisplay(residuals(arima.022), lag.max=40, main="Plot Sisaan Model ARIMA(0,2,2)")
+
+# Check the independency of residuals
+ljbtest2 <- LjungBox(residuals(arima.022), lags=seq(5, 30, 5), order=0, squared.residuals=FALSE)
+ljbtest2
+# We found that the residuals still have dependency,
+# so let's fix this with Overfitting II
+
+```
+
+## Memastikan model terbaik dengan Overfitting (2)
+```{r}
+# Produce ARIMA model of Overfit Prob.
+arima.122 <- Arima(train.d2, order=c(1,2,2), method='ML')
+arima.023 <- Arima(train.d2, order=c(0,2,3), method='ML')
+
+# Check Significance of Overfit Prob.
+coeftest(arima.122)
+coeftest(arima.023)
+
+# Check AIC Score
+arima.122
+arima.023 # <- Choosen because of minimum AIC
+
+```
+
+## Menguji apakah sisaan pada model ARIMA yang dipilih saling bebas (2)
+```{r}
+# Show Residuals plot pf the model
+tsdisplay(residuals(arima.023), lag.max=40, main="Plot Sisaan Model ARIMA(0,2,3)")
+
+# Check the independency of residuals
+ljbtest3 <- LjungBox(residuals(arima.023), lags=seq(5, 30, 5), order=0, squared.residuals=FALSE)
+ljbtest3
+# Yeayy! Finally we found the ARIMA model that has no dependency on its residuals!
+
+```
+
+## Melakukan peramalan pada data train menggunakan model ARIMA yang dipilih
+```{r}
+# Forecast for 12 periods ahead
+fcast.test <- forecast(ts(train), model=arima.122, h = 12)
+# Shows full information of forecasting
+str(fcast.test)
+
+# Shows forecasting value result
+fcast.test$mean
+
+# Shows the different between actual and predicted value
+plot.ts(train, lwd=2, xlim=c(0,59), ylim=c(0, 2.4), main="Jumlah Emisi CO2 di Indonesia Tahun 1960 - 2018", xlab="Periode", ylab="Emisi CO2 Ton Per Capita")
+lines(c(rep(NA, 47), test), col="magenta", lwd=2)
+lines(c(rep(NA, 47), fcast.test$mean), col="blue", lwd=2)
+abline(v=47, lty=2, col="orange", lwd=2)
+
+```
+
+## Menghitung error pada peramalan untuk data test
+```{r}
+# Transforming data to subtract-able Time Series
+fcast.test.ts <- ts(fcast.test$mean)
+test.ts <- ts(test)
+fcast.test.ts
+test.ts
+
+# Calculate the error of each period
+er.fcast.test <- fcast.test.ts - test.ts
+er.fcast.test
+
+# Calculate MAD MSE and MAPE
+MAD.test <- mean(abs(er.fcast.test))
+MSE.test <- mean(er.fcast.test^2)
+MAPE.test <- mean(abs(er.fcast.test / test.ts)) * 100
+
+MAD.test
+MSE.test
+MAPE.test
+
+```
+
+## Melakukan peramalan untuk 10 periode ke depan
+```{r}
+# Forecast the Emission Value 10 periods ahead
+fcast.10period <- forecast(ts(data$Emission), model=arima.122, h = 10)
+fcast.10period$mean
+
+# Visualize the forecast of Emission Value 10 periods ahead
+plot(fcast.10period, main="Jumlah Emisi CO2 di Indonesia Tahun 1960 - 2018", xlab="Periode", ylab="Emisi CO2 Ton Per Capita")
+abline(v=59, col="forestgreen", lty=2, lwd=2)
+
+```
+
+```{r}
+
+
+```
+
+
+
+
+
+
